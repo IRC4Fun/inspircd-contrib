@@ -20,7 +20,7 @@ Modules in this repository are not officially supported by the InspIRCd developm
 
 See the module author comments in the module files to find the author.
 
-You may be able to find the author or others who use the module in \#inspircd on irc.inspircd.org.
+You may be able to find the author or others who use the module in \#inspircd or \#inspircd.dev on irc.chatspike.net.
 
 Please make it clear you're asking about a contrib module!
 
@@ -29,8 +29,7 @@ Please make it clear you're asking about a contrib module!
 ### Example Tags
 
 ```
-/// $ModAuthor: w00t
-/// $ModAuthorMail: w00t@example.com
+/// $ModAuthor: w00t <w00t@example.com>
 /// $ModConfig: <syncbans channels="#a,#b,#c">
 /// $ModConflicts: m_muteban.so
 /// $ModDepends: core 3
