@@ -1,7 +1,7 @@
 /*
  * InspIRCd -- Internet Relay Chat Daemon
  *
- *   Copyright (C) 2019-2020 Sadie Powell <sadie@witchery.services>
+ *   Copyright (C) 2019-2024 Sadie Powell <sadie@witchery.services>
  *
  * This file is part of InspIRCd.  InspIRCd is free software: you can
  * redistribute it and/or modify it under the terms of the GNU General Public
@@ -20,19 +20,17 @@
 
 /// $ModAuthor: Sadie Powell
 /// $ModAuthorMail: sadie@witchery.services
-/// $ModDepends: core 3
+/// $ModDepends: core 4
 /// $ModDesc: Provides the DRAFT extjwt IRCv3 extension.
-
-/// $PackageInfo: require_system("debian") rapidjson-dev
-/// $PackageInfo: require_system("darwin") rapidjson
-/// $PackageInfo: require_system("ubuntu") rapidjson-dev
-
 
 #include "inspircd.h"
 #include "modules/account.h"
 #include "modules/hash.h"
 #include "modules/httpd.h"
 #include "modules/ircv3_replies.h"
+#include "modules/isupport.h"
+#include "numerichelper.h"
+#include "stringutils.h"
 
 #define RAPIDJSON_HAS_STDSTRING 1
 
@@ -51,14 +49,14 @@ namespace
 	std::string CreateJWT(dynamic_reference_nocheck<HashProvider>& sha256, const std::string& payload, const std::string& secret)
 	{
 		std::string token("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."); // {"alg":"HS256","typ":"JWT"}
-		token.append(BinToBase64(payload, BASE64_URL));
+		token.append(Base64::Encode(payload, BASE64_URL));
 		const std::string signature = sha256->hmac(secret, token);
-		token.append(".").append(BinToBase64(signature, BASE64_URL));
+		token.append(".").append(Base64::Encode(signature, BASE64_URL));
 		return token;
 	}
 }
 
-struct JWTService CXX11_FINAL
+struct JWTService final
 {
 	// The duration that a generated JWT is valid for.
 	unsigned long duration;
@@ -69,22 +67,22 @@ struct JWTService CXX11_FINAL
 	// The URL for verifying JWT for this service.
 	std::string verifyurl;
 
-	JWTService(unsigned long Duration, const std::string& Secret, const std::string& VerifyURL)
-		: duration(Duration)
-		, secret(Secret)
-		, verifyurl(VerifyURL)
+	JWTService(unsigned long d, const std::string& s, const std::string& v)
+		: duration(d)
+		, secret(s)
+		, verifyurl(v)
 	{
 	}
 };
 
 typedef insp::flat_map<std::string, JWTService, irc::insensitive_swo> ServiceMap;
 
-class ExtJWTMessage CXX11_FINAL
+class ExtJWTMessage final
 	: public ClientProtocol::Message
 {
- public:
+public:
 	ExtJWTMessage(Channel* chan, const std::string& service, bool last, const std::string& data)
-		: ClientProtocol::Message("EXTJWT", ServerInstance->Config->ServerName)
+		: ClientProtocol::Message("EXTJWT", ServerInstance->Config->GetServerName())
 	{
 		if (chan)
 			PushParamRef(chan->name);
@@ -100,10 +98,10 @@ class ExtJWTMessage CXX11_FINAL
 	}
 };
 
-class ExtJWTVerifier CXX11_FINAL
+class ExtJWTVerifier final
 	: public HTTPRequestEventListener
 {
- private:
+private:
 	HTTPdAPI httpapi;
 	dynamic_reference_nocheck<HashProvider>& sha256;
 	ServiceMap& services;
@@ -120,7 +118,7 @@ class ExtJWTVerifier CXX11_FINAL
 		return MOD_RES_DENY;
 	}
 
- public:
+public:
 	ExtJWTVerifier(Module* Creator, ServiceMap& Services, dynamic_reference_nocheck<HashProvider>& SHA256)
 		: HTTPRequestEventListener(Creator)
 		, httpapi(Creator)
@@ -129,13 +127,13 @@ class ExtJWTVerifier CXX11_FINAL
 	{
 	}
 
-	ModResult OnHTTPRequest(HTTPRequest& request) CXX11_OVERRIDE
+	ModResult OnHTTPRequest(HTTPRequest& request) override
 	{
 		irc::sepstream pathstream(request.GetPath(), '/');
 		std::string pathtoken;
 
 		// Check the root /extjwt path was specified.
-		if (!pathstream.GetToken(pathtoken) || !stdalgo::string::equalsci(pathtoken, "extjwt"))
+		if (!pathstream.GetToken(pathtoken) || !insp::equalsci(pathtoken, "extjwt"))
 			return MOD_RES_PASSTHRU; // Pass through to another module.
 
 		// Check a service was specified if multiple exist.
@@ -167,7 +165,7 @@ class ExtJWTVerifier CXX11_FINAL
 			return HandleResponse(request, 401, "Malformed JWT specified");
 
 		// Decode the payload.
-		payload = Base64ToBin(payload, BASE64_URL);
+		payload = Base64::Decode(payload, BASE64_URL);
 
 		// Check the header and signature are valid.
 		if (pathtoken != CreateJWT(sha256, payload, siter->second.secret))
@@ -191,43 +189,45 @@ class ExtJWTVerifier CXX11_FINAL
 	}
 };
 
-class CommandExtJWT CXX11_FINAL
+
+class CommandExtJWT final
 	: public SplitCommand
 {
- private:
+private:
+	Account::API accountapi;
 	ChanModeReference privatemode;
 	ClientProtocol::EventProvider protoev;
 	ChanModeReference secretmode;
-	IRCv3::Replies::Fail fail;
+	IRCv3::Replies::Fail failrpl;
 	ExtJWTVerifier verifier;
 
- public:
-	LocalIntExt ext;
+public:
+	IntExtItem ext;
 	ServiceMap services;
 	dynamic_reference_nocheck<HashProvider> sha256;
 
 	CommandExtJWT(Module* Creator)
 		: SplitCommand(Creator, "EXTJWT", 1, 2)
+		, accountapi(Creator)
 		, privatemode(Creator, "private")
 		, protoev(Creator, "EXTJWT")
 		, secretmode(Creator, "secret")
-		, fail(Creator)
+		, failrpl(Creator)
 		, verifier(Creator, services, sha256)
-		, ext("join-time", ExtensionItem::EXT_MEMBERSHIP, Creator)
+		, ext(Creator, "join-time", ExtensionType::MEMBERSHIP)
 		, sha256(Creator, "hash/sha256")
 	{
-		allow_empty_last_param = false;
-		Penalty = 4;
-		syntax = "*|<channel> [<service>]";
+		penalty = 4000;
+		syntax = { "*|<channel> [<service>]" };
 	}
 
-	CmdResult HandleLocal(LocalUser* user, const Params& parameters) CXX11_OVERRIDE
+	CmdResult HandleLocal(LocalUser* user, const Params& parameters) override
 	{
 		// Check that we actually have a SHA256 module.
 		if (!sha256)
 		{
-			fail.Send(user, this, "UNSPECIFIED_ERROR", "JSON Web Token generation is currently unavailable!");
-			return CMD_FAILURE;
+			failrpl.Send(user, this, "UNSPECIFIED_ERROR", "JSON Web Token generation is currently unavailable!");
+			return CmdResult::FAILURE;
 		}
 
 		// Is the user expecting a user token or a channel token?
@@ -236,13 +236,13 @@ class CommandExtJWT CXX11_FINAL
 		if (parameters[0] != "*")
 		{
 			// Chec that the target channel actually exists.
-			chan = ServerInstance->FindChan(parameters[0]);
+			chan = ServerInstance->Channels.Find(parameters[0]);
 			memb = chan ? chan->GetUser(user) : NULL;
 			if (!chan || (!memb && (chan->IsModeSet(privatemode) || chan->IsModeSet(secretmode))))
 			{
 				// The target channel does not exist.
 				user->WriteNumeric(Numerics::NoSuchChannel(parameters[0]));
-				return CMD_FAILURE;
+				return CmdResult::FAILURE;
 			}
 		}
 
@@ -254,8 +254,8 @@ class CommandExtJWT CXX11_FINAL
 			siter = services.find(parameters[1]);
 			if (siter == services.end())
 			{
-				fail.Send(user, this, "INVALID_PROFILE", "You specified an invalid JSON Web Token profile!");
-				return CMD_FAILURE;
+				failrpl.Send(user, this, "INVALID_PROFILE", "You specified an invalid JSON Web Token profile!");
+				return CmdResult::FAILURE;
 			}
 			servicename = siter->first;
 		}
@@ -270,30 +270,22 @@ class CommandExtJWT CXX11_FINAL
 			writer.Uint64(ServerInstance->Time() + siter->second.duration);
 
 			writer.Key("iss");
-			writer.String(ServerInstance->Config->ServerName);
+			writer.String(ServerInstance->Config->GetServerName());
 
 			writer.Key("sub");
 			writer.String(user->nick);
 
 			writer.Key("account");
-			const AccountExtItem* accountext = GetAccountExtItem();
-			const std::string* account = accountext ? accountext->get(user) : NULL;
+			const std::string* account = accountapi ? accountapi->GetAccountName(user) : NULL;
 			writer.String(account ? account->c_str() : "");
 
 			writer.Key("umodes");
 			writer.StartArray();
 			{
-				const std::string modes = user->GetModeLetters();
-				for (size_t i = 1; i < modes.length(); ++i)
-					writer.String(modes.c_str() + i, 1);
+				for (auto mode : user->GetModeLetters().substr(1))
+					writer.String(&mode, 1);
 			}
 			writer.EndArray();
-
-			if (!siter->second.verifyurl.empty())
-			{
-				writer.Key("vfy");
-				writer.String(siter->second.verifyurl);
-			}
 
 			if (chan)
 			{
@@ -301,13 +293,16 @@ class CommandExtJWT CXX11_FINAL
 				writer.String(chan->name);
 
 				writer.Key("joined");
-				writer.Uint64(memb ? ext.get(memb) : 0);
+				writer.Uint64(memb ? ext.Get(memb) : 0);
 
 				writer.Key("cmodes");
 				writer.StartArray();
 				{
-					for (size_t i = 0; memb && i < memb->modes.length(); ++i)
-						writer.String(memb->modes.c_str() + i, 1);
+					for (const auto* mh : memb->modes)
+					{
+						auto chr = mh->GetModeChar();
+						writer.String(&chr, 1);
+					}
 				}
 				writer.EndArray();
 			}
@@ -329,69 +324,65 @@ class CommandExtJWT CXX11_FINAL
 		ExtJWTMessage jwtmsg(chan, servicename, true, token.substr(startpos));
 		ClientProtocol::Event jwtev(protoev, jwtmsg);
 		user->Send(jwtev);
-		return CMD_SUCCESS;
+		return CmdResult::SUCCESS;
 	}
 };
 
-class ModuleIRCv3ExtJWT CXX11_FINAL
+class ModuleIRCv3ExtJWT final
 	: public Module
+	, public ISupport::EventListener
 {
- private:
+private:
 	CommandExtJWT cmd;
 
- public:
+public:
 	ModuleIRCv3ExtJWT()
-		: cmd(this)
+		: Module(VF_OPTCOMMON, "Provides the DRAFT extjwt IRCv3 extension.")
+		, ISupport::EventListener(this)
+		, cmd(this)
 	{
 	}
 
-	void ReadConfig(ConfigStatus& status) CXX11_OVERRIDE
+	void ReadConfig(ConfigStatus& status) override
 	{
+		auto tags = ServerInstance->Config->ConfTags("extjwt");
+		if (tags.empty())
+			throw ModuleException(this, "You have loaded the ircv3_extjwt module but not configured any <extjwt> tags!");
+
 		ServiceMap newservices;
-		ConfigTagList tags = ServerInstance->Config->ConfTags("extjwt");
-		if (tags.first == tags.second)
-			throw ModuleException("You have loaded the ircv3_extjwt module but not configured any <extjwt> tags!");
-
-		for (ConfigIter iter = tags.first; iter != tags.second; ++iter)
+		for (const auto& [_, tag] : tags)
 		{
-			ConfigTag* tag = iter->second;
-
 			// A JWT can live for any time between ten seconds and ten minutes (default: 30 seconds).
-			const unsigned long duration = tag->getDuration("duration", 30, 10, 10*60);
-			const std::string verifyurl = tag->getString("verifyurl");
+			const auto duration = tag->getDuration("duration", 30, 10, 10*60);
+			const auto verifyurl = tag->getString("verifyurl");
 
 			// Always require a secret.
-			const std::string secret = tag->getString("secret");
+			const auto secret = tag->getString("secret");
 			if (secret.empty())
-				throw ModuleException("<extjwt:secret> is a required field, at " + tag->getTagLocation());
+				throw ModuleException(this, "<extjwt:secret> is a required field, at " + tag->source.str());
 
 			// Only require a name when more than one service is configured.
-			const std::string name = tag->getString("name");
-			if (name.empty() && std::distance(tags.first, tags.second) > 1)
-				throw ModuleException("<extjwt:name> is a required field, at " + tag->getTagLocation());
+			const auto name = tag->getString("name");
+			if (name.empty() && tags.count() > 1)
+				throw ModuleException(this, "<extjwt:name> is a required field, at " + tag->source.str());
 
 			// If the insertion fails a JWTService with this name already exists.
-			if (!newservices.insert(std::make_pair(name, JWTService(duration, secret, verifyurl))).second)
-				throw ModuleException("<extjwt:name> (" + name + ") must be unique, at " + tag->getTagLocation());
+			if (!newservices.emplace(name, JWTService(duration, secret, verifyurl)).second)
+				throw ModuleException(this, "<extjwt:name> (" + name + ") must be unique, at " + tag->source.str());
 		}
 
 		std::swap(newservices, cmd.services);
 	}
 
-	void On005Numeric(std::map<std::string, std::string>& tokens) CXX11_OVERRIDE
+	void OnBuildISupport(ISupport::TokenMap& tokens) override
 	{
 		tokens["EXTJWT"] = "1";
 	}
 
-	void OnPostJoin(Membership* memb) CXX11_OVERRIDE
+	void OnPostJoin(Membership* memb) override
 	{
 		if (IS_LOCAL(memb->user))
-			cmd.ext.set(memb, ServerInstance->Time());
-	}
-
-	Version GetVersion() CXX11_OVERRIDE
-	{
-		return Version("Provides the DRAFT extjwt IRCv3 extension", VF_OPTCOMMON);
+			cmd.ext.Set(memb, ServerInstance->Time());
 	}
 };
 
