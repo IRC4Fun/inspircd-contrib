@@ -264,7 +264,7 @@ module m_xlinetools 3.752 https://raw.githubusercontent.com/inspircd/inspircd-co
 module m_zombie 3.752 https://raw.githubusercontent.com/inspircd/inspircd-contrib/9705e755cd2f51ee45b6df7dabf127bd6b435966/3/m_zombie.cpp
  depends core 3
  description Provides support for zombifying users who have split because of a network issue.
-module m_antiknocker 4.896 https://raw.githubusercontent.com/inspircd/inspircd-contrib/4aa2deafe34b7c77d65b88c9245d114f3a42c781/4/m_antiknocker.cpp
+module m_antiknocker 4.919 https://raw.githubusercontent.com/inspircd/inspircd-contrib/fc3986aaab3749c34b9ef08abfcfd58beb6702d6/4/m_antiknocker.cpp
  description Attempts to block a common IRC spambot.
  depends core 4
 module m_antisnoop 4.847 https://raw.githubusercontent.com/inspircd/inspircd-contrib/7f09d3cfdbeba535984854b1d6be4f632a150877/4/m_antisnoop.cpp
@@ -285,6 +285,9 @@ module m_autokick 4.810 https://raw.githubusercontent.com/inspircd/inspircd-cont
 module m_blockhighlight 4.847 https://raw.githubusercontent.com/inspircd/inspircd-contrib/7f09d3cfdbeba535984854b1d6be4f632a150877/4/m_blockhighlight.cpp
  description Adds a channel mode which kills clients that mass highlight spam.
  depends core 4
+module m_blocksock 4.913 https://raw.githubusercontent.com/inspircd/inspircd-contrib/886bd76ea83c0f88ce911b1dc818e7ec0646df7b/4/m_blocksock.cpp
+ depends core 4
+ description Allows blocking IP addresses from making any socket connections to the server.
 module m_censor 4.847 https://raw.githubusercontent.com/inspircd/inspircd-contrib/7f09d3cfdbeba535984854b1d6be4f632a150877/4/m_censor.cpp
  depends core 4
  description Allows the server administrator to define inappropriate phrases that are not allowed to be used in private or channel messages.
@@ -332,6 +335,9 @@ module m_forceusername 4.889 https://raw.githubusercontent.com/inspircd/inspircd
  description Allows forcing usernames on users based on their connect class.
 module m_geocmd 4.810 https://raw.githubusercontent.com/inspircd/inspircd-contrib/e5b22f69a1e5112f17a2e665d9e39691033d98ec/4/m_geocmd.cpp
  description Provides the /GEOLOCATE command which performs Geolocation lookups on arbitrary IP addresses.
+ depends core 4
+module m_geomaxlite 4.921 https://raw.githubusercontent.com/inspircd/inspircd-contrib/e22acb9d71c50a9b75b50b8871ebef49c072a6b1/4/m_geomaxlite.cpp
+ description Adds city and country information to WHOIS using a local MaxMind GeoLite2 database with user mode +y.
  depends core 4
 module m_hideidle 4.902 https://raw.githubusercontent.com/inspircd/inspircd-contrib/54b5aa021103111f3b8475ba919ee604cf954c32/4/m_hideidle.cpp
  depends core 4
@@ -405,6 +411,9 @@ module m_teststdrpl 4.810 https://raw.githubusercontent.com/inspircd/inspircd-co
 module m_userip 4.812 https://raw.githubusercontent.com/inspircd/inspircd-contrib/530a46b200879d8df23209254dd22252f1a79d68/4/m_userip.cpp
  depends core 4
  description Adds the /USERIP command which allows users to find out the IP address of one or more connected users.
+module m_usernamemeta 4.915 https://raw.githubusercontent.com/inspircd/inspircd-contrib/277247da0a9d80b4dbf6d81b0aecd7d9b951c34d/4/m_usernamemeta.cpp
+ depends core 4
+ description Stores the username given in USER as metadata.
 module cloak_md5 5.873 https://raw.githubusercontent.com/inspircd/inspircd-contrib/86b9049717107211f30f34b4e3b1e55dc85147ba/5/cloak_md5.cpp
  depends core 5
  description Adds the half and full cloaking methods for use with the cloak module.
